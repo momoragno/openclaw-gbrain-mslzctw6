@@ -1,0 +1,49 @@
+# Render Blueprint: OpenClaw + AlphaClaw + GBrain (PGLite engine)
+# Single-container deploy: AlphaClaw + OpenClaw + GBrain, with the GBrain
+# knowledge brain stored as an embedded PGLite database on the persistent
+# disk. No external Postgres required — PGLite runs in-process and ships
+# pgvector + pg_trgm as bundled extensions.
+
+services:
+  - type: web
+    name: openclaw-gbrain
+    runtime: docker
+    # Pro (4 GB) gives ~50% headroom over OpenClaw's 2 GB minimum and
+    # survives bulk-ingest spikes. Drop to standard for a try-it-out
+    # deploy with no real brain yet; bump to pro_plus if you're ingesting
+    # 10k+ pages in one batch.
+    plan: pro
+    region: oregon
+    healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    disk:
+      name: alphaclaw-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      # --- AlphaClaw / OpenClaw ---
+      - key: ALPHACLAW_ROOT_DIR
+        value: /data
+      - key: SETUP_PASSWORD
+        generateValue: true
+      - key: OPENCLAW_GATEWAY_TOKEN
+        generateValue: true
+      - key: PORT
+        value: "10000"
+
+      # --- GBrain API keys (required at deploy time) ---
+      # OpenAI: embeddings (text-embedding-3-large)
+      # Anthropic: multi-query expansion + LLM chunking (Haiku)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # --- GBrain runtime config ---
+      # GBRAIN_HOME is treated as a PARENT directory by gbrain — it
+      # appends '.gbrain' itself. Setting GBRAIN_HOME=/data yields
+      # configDir = /data/.gbrain (brain file at
+      # /data/.gbrain/brain.pglite, config at /data/.gbrain/config.json).
+      # Both persist across deploys via the disk.
+      - key: GBRAIN_HOME
+        value: /data
