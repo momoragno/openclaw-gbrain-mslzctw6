@@ -47,3 +47,17 @@ services:
       # Both persist across deploys via the disk.
       - key: GBRAIN_HOME
         value: /data
+
+      # --- GBrain autonomous maintenance ---
+      # Daily pull → sync → embed → extract → health. Healthy cycles are
+      # silent; failures are sent to the first paired Telegram owner.
+      - key: GBRAIN_MAINTENANCE_ENABLED
+        value: "true"
+      - key: GBRAIN_REPO_PATH
+        value: /data/brain
+      - key: GBRAIN_MAINTENANCE_TZ
+        value: Europe/Rome
+      - key: GBRAIN_MAINTENANCE_TIME
+        value: "03:15"
+      - key: GBRAIN_ALERT_COOLDOWN_SECONDS
+        value: "86400"
