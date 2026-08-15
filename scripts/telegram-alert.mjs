@@ -21,6 +21,28 @@ async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
 }
 
+async function readEnvFile(filePath) {
+  let content;
+  try {
+    content = await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw error;
+  }
+
+  const values = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator === -1) continue;
+    const key = trimmed.slice(0, separator);
+    const value = trimmed.slice(separator + 1);
+    if (value) values[key] = value;
+  }
+  return values;
+}
+
 function runtimePaths(env) {
   const rootDir = env.ALPHACLAW_ROOT_DIR || '/data';
   const gbrainParent = env.GBRAIN_HOME || rootDir;
@@ -34,6 +56,7 @@ function runtimePaths(env) {
       || path.join(rootDir, '.openclaw', 'openclaw.json'),
     allowFromPath: env.TELEGRAM_ALLOW_FROM_PATH
       || path.join(rootDir, '.openclaw', 'credentials', 'telegram-default-allowFrom.json'),
+    envPath: env.ALPHACLAW_ENV_PATH || path.join(rootDir, '.env'),
   };
 }
 
@@ -128,6 +151,12 @@ function resolveTarget(allowFrom, env) {
   return (allowFrom || []).map(String).find((value) => /^-?\d+$/.test(value));
 }
 
+function resolveEnvReference(value, env) {
+  if (typeof value !== 'string') return value;
+  const match = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
+  return match ? env[match[1]] : value;
+}
+
 async function alertState(message, stateDir, cooldownSeconds) {
   const statePath = path.join(stateDir, 'telegram-alert-state.json');
   const fingerprint = createHash('sha256').update(message).digest('hex');
@@ -161,7 +190,12 @@ export async function deliverAlert({
   if (!message?.trim()) throw new Error('alert message is empty');
 
   const paths = runtimePaths(env);
-  const { stateDir, configPath, allowFromPath } = paths;
+  const {
+    stateDir,
+    configPath,
+    allowFromPath,
+    envPath,
+  } = paths;
   const cooldownSeconds = Number(env.GBRAIN_ALERT_COOLDOWN_SECONDS || 86_400);
   const telegramApiBaseUrl = env.TELEGRAM_API_BASE_URL || 'https://api.telegram.org';
 
@@ -173,11 +207,15 @@ export async function deliverAlert({
   const state = await alertState(message, stateDir, cooldownSeconds);
   if (state.suppressed) return 'suppressed';
 
-  const [config, allowFromConfig] = await Promise.all([
+  const [config, allowFromConfig, fileEnv] = await Promise.all([
     readJson(configPath),
     readJson(allowFromPath),
+    readEnvFile(envPath),
   ]);
-  const token = config?.channels?.telegram?.botToken;
+  const token = resolveEnvReference(
+    config?.channels?.telegram?.botToken,
+    { ...fileEnv, ...env },
+  );
   const target = resolveTarget(allowFromConfig?.allowFrom, env);
   if (!token) throw new Error('Telegram bot token is not configured');
   if (!target) throw new Error('no numeric Telegram recipient is configured');

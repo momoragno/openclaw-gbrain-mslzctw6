@@ -127,6 +127,14 @@ if [ "${#FAILURES[@]}" -eq 0 ]; then
     gbrain dream --json --dir "$DREAM_WORKTREE" --source "$SOURCE_ID" || true
 fi
 
+# Dream's extract phase is incremental to pages changed during that cycle.
+# Clear any extraction backlog that predates the cycle before enforcing the
+# strict zero-stale-pages health gate.
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  run_step "gbrain stale extraction catch-up" \
+    gbrain extract --stale --source-id "$SOURCE_ID" --catch-up --json || true
+fi
+
 if [ "${#FAILURES[@]}" -eq 0 ]; then
   run_step "gbrain doctor" gbrain doctor --json || true
 fi

@@ -48,6 +48,43 @@ test('delivers once and suppresses an identical alert during cooldown', async ()
   }
 });
 
+test('resolves an OpenClaw environment placeholder before calling Telegram', async () => {
+  const testRoot = await mkdtemp(path.join(os.tmpdir(), 'gbrain-alert-env-token-'));
+  const stateDir = path.join(testRoot, 'state');
+  const configPath = path.join(testRoot, 'openclaw.json');
+  const allowFromPath = path.join(testRoot, 'allowFrom.json');
+  const envPath = path.join(testRoot, '.env');
+  await mkdir(stateDir);
+  await writeFile(configPath, JSON.stringify({
+    channels: { telegram: { botToken: '${TELEGRAM_BOT_TOKEN}' } },
+  }));
+  await writeFile(allowFromPath, JSON.stringify({ allowFrom: ['123456'] }));
+  await writeFile(envPath, 'TELEGRAM_BOT_TOKEN=resolved-token\n');
+
+  let requestedUrl;
+  try {
+    const result = await deliverAlert({
+      message: 'resolved secret reference',
+      env: {
+        GBRAIN_MAINTENANCE_STATE_DIR: stateDir,
+        OPENCLAW_CONFIG_PATH: configPath,
+        TELEGRAM_ALLOW_FROM_PATH: allowFromPath,
+        ALPHACLAW_ENV_PATH: envPath,
+        TELEGRAM_API_BASE_URL: 'https://telegram.invalid',
+      },
+      fetchImpl: async (url) => {
+        requestedUrl = url;
+        return { ok: true, status: 200 };
+      },
+      now: DAYTIME,
+    });
+    assert.equal(result, 'delivered');
+    assert.equal(requestedUrl, 'https://telegram.invalid/botresolved-token/sendMessage');
+  } finally {
+    await rm(testRoot, { recursive: true, force: true });
+  }
+});
+
 test('does not consume cooldown when delivery fails', async () => {
   const testRoot = await mkdtemp(path.join(os.tmpdir(), 'gbrain-alert-failure-'));
   const stateDir = path.join(testRoot, 'state');

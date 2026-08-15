@@ -70,15 +70,27 @@ case "$1" in
     printf '%s\n' "$*" >> "$GBRAIN_CALL_CAPTURE"
     echo '{"status":"clean","phases":[]}'
     ;;
+  extract)
+    printf '%s\n' "$*" >> "$GBRAIN_CALL_CAPTURE"
+    touch "$GBRAIN_EXTRACT_CAUGHT_UP"
+    echo '{"action":"extract_stale_done","pages_processed":2,"stale_remaining":0}'
+    ;;
   doctor)
     printf '%s\n' "$*" >> "$GBRAIN_CALL_CAPTURE"
     echo '{"status":"ok","checks":[]}'
     ;;
   health)
-    echo "Health score: ${GBRAIN_TEST_HEALTH_SCORE:-10}/10"
+    if [ -f "$GBRAIN_EXTRACT_CAUGHT_UP" ]; then
+      stale_pages=0
+      health_score="${GBRAIN_TEST_HEALTH_SCORE:-10}"
+    else
+      stale_pages=2
+      health_score=9
+    fi
+    echo "Health score: $health_score/10"
     echo "Embed coverage: 100.0%"
     echo "Missing embeddings: 0"
-    echo "Stale pages: 0"
+    echo "Stale pages: $stale_pages"
     ;;
   *) exit 1 ;;
 esac
@@ -99,6 +111,7 @@ export GBRAIN_MAINTENANCE_STATE_DIR="$TEST_ROOT/state"
 export GBRAIN_TELEGRAM_ALERT_SCRIPT="$TEST_ROOT/notifier.mjs"
 export ALERT_CAPTURE="$TEST_ROOT/alert.txt"
 export GBRAIN_CALL_CAPTURE="$TEST_ROOT/gbrain-calls.txt"
+export GBRAIN_EXTRACT_CAUGHT_UP="$TEST_ROOT/extract-caught-up"
 export GIT_CALL_CAPTURE="$TEST_ROOT/git-calls.txt"
 export GIT_COMMITTED="$TEST_ROOT/git-committed"
 
@@ -106,6 +119,7 @@ export GIT_COMMITTED="$TEST_ROOT/git-committed"
 test -f "$TEST_ROOT/state/last-success.txt"
 test ! -f "$TEST_ROOT/alert.txt"
 grep -Eq "dream --json --dir $TEST_ROOT/state/dream-worktree\.[^ ]+ --source default" "$GBRAIN_CALL_CAPTURE"
+grep -q "extract --stale --source-id default --catch-up --json" "$GBRAIN_CALL_CAPTURE"
 grep -q "doctor --json" "$GBRAIN_CALL_CAPTURE"
 grep -q "add --all" "$GIT_CALL_CAPTURE"
 grep -q "commit -m gbrain: dream cycle" "$GIT_CALL_CAPTURE"
