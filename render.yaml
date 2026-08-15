@@ -55,9 +55,17 @@ services:
         value: "true"
       - key: GBRAIN_REPO_PATH
         value: /data/brain
+      - key: GBRAIN_SOURCE_ID
+        value: default
       - key: GBRAIN_MAINTENANCE_TZ
         value: Europe/Rome
       - key: GBRAIN_MAINTENANCE_TIME
         value: "03:15"
       - key: GBRAIN_ALERT_COOLDOWN_SECONDS
         value: "86400"
+      - key: GBRAIN_QUIET_HOURS_START
+        value: "23"
+      - key: GBRAIN_QUIET_HOURS_END
+        value: "8"
+      - key: GBRAIN_ALERT_DRAIN_INTERVAL_SECONDS
+        value: "900"
