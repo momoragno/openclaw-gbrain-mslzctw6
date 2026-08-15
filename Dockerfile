@@ -14,11 +14,12 @@ FROM node:24.18.1-slim
 #   - procps: watchdog uses ps for process supervision
 #   - cron: AlphaClaw schedules backup/maintenance jobs
 #   - ca-certificates, unzip: needed for the bun installer + TLS for API calls
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       git \
       curl \
       procps \
       cron \
+      tzdata \
       ca-certificates \
       unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -80,9 +81,12 @@ RUN mkdir -p /app/skills-seed \
          exit 1; \
        fi
 
-# Entrypoint: initializes the PGLite brain, seeds skills, execs AlphaClaw.
+# Entrypoint and maintenance: initialize the brain, keep it healthy, then
+# exec AlphaClaw. The scheduler inherits runtime API keys without persisting
+# them into a crontab or another environment file.
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/entrypoint.sh /app/scripts/*.sh
 
 ENV ALPHACLAW_ROOT_DIR=/data
 ENV NODE_ENV=production

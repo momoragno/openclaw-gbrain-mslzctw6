@@ -61,7 +61,20 @@ if [ -d /app/skills-seed ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Hand off to AlphaClaw.
+# 4. Start the container-safe GBrain maintenance scheduler.
+#    It sleeps until the configured local time, runs a guarded one-shot
+#    pull/sync/embed/extract/health cycle, and only notifies Telegram when
+#    the cycle fails or health degrades.
+# ---------------------------------------------------------------------------
+if [ "${GBRAIN_MAINTENANCE_ENABLED:-true}" = "true" ]; then
+  log "Starting GBrain maintenance scheduler..."
+  /app/scripts/maintenance-scheduler.sh &
+else
+  log "GBrain maintenance scheduler disabled."
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Hand off to AlphaClaw.
 # ---------------------------------------------------------------------------
 log "Starting AlphaClaw..."
 exec "$@"

@@ -15,6 +15,7 @@ One-click Render deploy for [OpenClaw](https://github.com/openclaw/openclaw) wra
 - **GBrain**, a Postgres-native knowledge brain with hybrid search (vector + keyword + RRF fusion + multi-query expansion), running on embedded **PGLite** so the brain lives entirely in-process — no external database to manage.
 - **GBrain skill pack** pre-seeded into `$ALPHACLAW_ROOT_DIR/skills` (ingest, query, maintain, enrich, briefing, install, and more). OpenClaw discovers them automatically on first boot.
 - **One container, one disk.** No external Postgres, no second billing line, no second dashboard.
+- **Silent maintenance autopilot.** A guarded daily cycle pulls the canonical brain repository, synchronizes, embeds, extracts, and verifies health. It sends Telegram only when intervention is required.
 
 ## What this template provisions
 
@@ -60,6 +61,42 @@ Initial embedding cost is roughly $4-5 per 7,500 pages.
    2. Seed the GBrain skills into `/data/skills`.
    3. Start AlphaClaw.
 5. Visit your Render URL, enter `SETUP_PASSWORD`, and complete the AlphaClaw welcome wizard.
+
+## Autonomous maintenance
+
+The container starts `/app/scripts/maintenance-scheduler.sh` alongside
+AlphaClaw. By default it runs every day at **03:15 Europe/Rome** and performs:
+
+1. a fast-forward-only pull of `/data/brain` (a dirty or diverged checkout is
+   never overwritten);
+2. `gbrain sync --source default`;
+3. stale embedding and extraction refreshes;
+4. a `gbrain health` gate.
+
+Healthy runs are silent. A failed step, a health score below 10/10, missing
+embeddings, or stale pages triggers a Telegram message to the first numeric
+owner in OpenClaw's existing Telegram allow-list. The existing bot token and
+recipient are read at runtime from `/data/.openclaw`; no secret is copied into
+the image or repository. Identical alerts are suppressed for 24 hours.
+
+Runtime controls:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GBRAIN_MAINTENANCE_ENABLED` | `true` | Disable the scheduler without rebuilding. |
+| `GBRAIN_REPO_PATH` | `/data/brain` | Canonical Git checkout. |
+| `GBRAIN_MAINTENANCE_TZ` | `Europe/Rome` | Scheduling timezone. |
+| `GBRAIN_MAINTENANCE_TIME` | `03:15` | Daily local run time. |
+| `GBRAIN_HEALTH_MIN_SCORE` | `10` | Minimum accepted health score. |
+| `GBRAIN_TELEGRAM_ALERTS` | `true` | Set to `false` to keep alerts log-only. |
+| `GBRAIN_ALERT_COOLDOWN_SECONDS` | `86400` | Duplicate-alert cooldown. |
+
+Diagnostics persist under `/data/.gbrain/maintenance/` as `last-run.log` and
+`last-success.txt`. Run a controlled cycle at any time with:
+
+```bash
+/app/scripts/gbrain-maintenance.sh
+```
 
 ## First conversation with your brain
 
