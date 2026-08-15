@@ -61,14 +61,15 @@ if [ -d /app/skills-seed ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Start the container-safe GBrain maintenance scheduler.
-#    It sleeps until the configured local time, runs a guarded one-shot
-#    pull/sync/embed/extract/health cycle, and only notifies Telegram when
-#    the cycle fails or health degrades.
+# 4. Start the container-safe GBrain dream scheduler and quiet-hours alert
+#    dispatcher. The one-shot native dream cycle releases PGLite between runs;
+#    alerts raised overnight are held on the persistent disk until morning.
 # ---------------------------------------------------------------------------
 if [ "${GBRAIN_MAINTENANCE_ENABLED:-true}" = "true" ]; then
   log "Starting GBrain maintenance scheduler..."
   /app/scripts/maintenance-scheduler.sh &
+  log "Starting GBrain quiet-hours alert dispatcher..."
+  /app/scripts/alert-dispatcher.sh &
 else
   log "GBrain maintenance scheduler disabled."
 fi

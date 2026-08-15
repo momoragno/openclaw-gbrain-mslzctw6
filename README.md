@@ -15,7 +15,7 @@ One-click Render deploy for [OpenClaw](https://github.com/openclaw/openclaw) wra
 - **GBrain**, a Postgres-native knowledge brain with hybrid search (vector + keyword + RRF fusion + multi-query expansion), running on embedded **PGLite** so the brain lives entirely in-process — no external database to manage.
 - **GBrain skill pack** pre-seeded into `$ALPHACLAW_ROOT_DIR/skills` (ingest, query, maintain, enrich, briefing, install, and more). OpenClaw discovers them automatically on first boot.
 - **One container, one disk.** No external Postgres, no second billing line, no second dashboard.
-- **Silent maintenance autopilot.** A guarded daily cycle pulls the canonical brain repository, synchronizes, embeds, extracts, and verifies health. It sends Telegram only when intervention is required.
+- **Silent native dream cycle.** A guarded daily run uses GBrain's own maintenance primitive, persists any repairs to the canonical brain repository, and verifies health. Telegram only speaks when intervention is required—and never during quiet hours.
 
 ## What this template provisions
 
@@ -59,19 +59,23 @@ Initial embedding cost is roughly $4-5 per 7,500 pages.
 4. Wait for the first deploy. The entrypoint will:
    1. Run `gbrain init --pglite` to create the brain file at `/data/.gbrain/brain.pglite` and apply the schema.
    2. Seed the GBrain skills into `/data/skills`.
-   3. Start AlphaClaw.
+   3. Start the nightly dream scheduler and quiet-hours alert dispatcher.
+   4. Start AlphaClaw.
 5. Visit your Render URL, enter `SETUP_PASSWORD`, and complete the AlphaClaw welcome wizard.
 
 ## Autonomous maintenance
 
-The container starts `/app/scripts/maintenance-scheduler.sh` alongside
-AlphaClaw. By default it runs every day at **03:15 Europe/Rome** and performs:
+The container starts `/app/scripts/maintenance-scheduler.sh` and
+`/app/scripts/alert-dispatcher.sh` alongside AlphaClaw. By default the native
+GBrain dream cycle runs every day at **03:15 Europe/Rome** and performs:
 
 1. a fast-forward-only pull of `/data/brain` (a dirty or diverged checkout is
    never overwritten);
-2. `gbrain sync --source default`;
-3. stale embedding and extraction refreshes;
-4. a `gbrain health` gate.
+2. `gbrain dream --json --dir /data/brain --source default`, covering lint,
+   backlinks, sync, synthesis, extraction, patterns, embeddings, and orphans;
+3. a guarded commit and push when the native cycle repairs or synthesizes brain
+   pages, so Render never becomes a second source of truth;
+4. `gbrain doctor --json` and a strict `gbrain health` gate.
 
 Healthy runs are silent. A failed step, a health score below 10/10, missing
 embeddings, or stale pages triggers a Telegram message to the first numeric
@@ -79,20 +83,30 @@ owner in OpenClaw's existing Telegram allow-list. The existing bot token and
 recipient are read at runtime from `/data/.openclaw`; no secret is copied into
 the image or repository. Identical alerts are suppressed for 24 hours.
 
+Alerts raised between **23:00 and 08:00 Europe/Rome** are stored atomically on
+the persistent disk instead of being delivered. The dispatcher retries every
+15 minutes and sends the pending diagnostic after quiet hours end. Failed
+deliveries remain queued for the next retry.
+
 Runtime controls:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GBRAIN_MAINTENANCE_ENABLED` | `true` | Disable the scheduler without rebuilding. |
 | `GBRAIN_REPO_PATH` | `/data/brain` | Canonical Git checkout. |
+| `GBRAIN_SOURCE_ID` | `default` | Source scoped by the native dream cycle. |
 | `GBRAIN_MAINTENANCE_TZ` | `Europe/Rome` | Scheduling timezone. |
 | `GBRAIN_MAINTENANCE_TIME` | `03:15` | Daily local run time. |
 | `GBRAIN_HEALTH_MIN_SCORE` | `10` | Minimum accepted health score. |
 | `GBRAIN_TELEGRAM_ALERTS` | `true` | Set to `false` to keep alerts log-only. |
 | `GBRAIN_ALERT_COOLDOWN_SECONDS` | `86400` | Duplicate-alert cooldown. |
+| `GBRAIN_QUIET_HOURS_START` | `23` | First held-delivery hour (inclusive). |
+| `GBRAIN_QUIET_HOURS_END` | `8` | First allowed-delivery hour (exclusive end). |
+| `GBRAIN_ALERT_DRAIN_INTERVAL_SECONDS` | `900` | Pending-alert retry cadence. |
 
-Diagnostics persist under `/data/.gbrain/maintenance/` as `last-run.log` and
-`last-success.txt`. Run a controlled cycle at any time with:
+Diagnostics persist under `/data/.gbrain/maintenance/` as `last-run.log`,
+`last-success.txt`, and—only while held—`pending-telegram-alert.json`. Run a
+controlled cycle at any time with:
 
 ```bash
 /app/scripts/gbrain-maintenance.sh

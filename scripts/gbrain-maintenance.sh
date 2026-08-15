@@ -7,6 +7,7 @@ log() { echo "[gbrain-maintenance] $*"; }
 ROOT_DIR="${ALPHACLAW_ROOT_DIR:-/data}"
 GBRAIN_PARENT="${GBRAIN_HOME:-$ROOT_DIR}"
 REPO_PATH="${GBRAIN_REPO_PATH:-$ROOT_DIR/brain}"
+SOURCE_ID="${GBRAIN_SOURCE_ID:-default}"
 STATE_DIR="${GBRAIN_MAINTENANCE_STATE_DIR:-$GBRAIN_PARENT/.gbrain/maintenance}"
 LOCK_DIR="$STATE_DIR/lock"
 NOTIFIER="${GBRAIN_TELEGRAM_ALERT_SCRIPT:-/app/scripts/telegram-alert.mjs}"
@@ -97,14 +98,37 @@ else
   fi
 fi
 
+BASE_HEAD=""
+DREAM_WORKTREE=""
 if [ "${#FAILURES[@]}" -eq 0 ]; then
-  run_step "gbrain sync" gbrain sync --source default || true
+  BASE_HEAD="$(git -C "$REPO_PATH" rev-parse HEAD 2>> "$RUN_LOG" || true)"
+  if [ -z "$BASE_HEAD" ]; then
+    FAILURES+=("could not resolve brain repository HEAD")
+  fi
 fi
+
+# Run file-producing phases in an isolated worktree. Telegram/OpenClaw can
+# still write to the canonical checkout while maintenance is running; keeping
+# generated files separate prevents `git add --all` from ever capturing those
+# concurrent user-authored changes.
 if [ "${#FAILURES[@]}" -eq 0 ]; then
-  run_step "gbrain embed stale" gbrain embed --stale || true
+  DREAM_WORKTREE="$(mktemp -d "$STATE_DIR/dream-worktree.XXXXXX")"
+  rmdir "$DREAM_WORKTREE"
+  run_step "create isolated dream worktree" \
+    git -C "$REPO_PATH" worktree add --detach "$DREAM_WORKTREE" "$BASE_HEAD" || true
 fi
+
+# GBrain's native one-shot cycle is the source of truth for nightly
+# maintenance. On PGLite it is safer than a long-lived autopilot process:
+# each command opens the embedded database, completes, and releases the file
+# lock before OpenClaw needs it again.
 if [ "${#FAILURES[@]}" -eq 0 ]; then
-  run_step "gbrain extract stale" gbrain extract --stale || true
+  run_step "gbrain dream" \
+    gbrain dream --json --dir "$DREAM_WORKTREE" --source "$SOURCE_ID" || true
+fi
+
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  run_step "gbrain doctor" gbrain doctor --json || true
 fi
 
 HEALTH_OUTPUT=""
@@ -138,6 +162,58 @@ if [ -n "$MISSING_EMBEDDINGS" ] && [ "$MISSING_EMBEDDINGS" -gt 0 ]; then
 fi
 if [ -n "$STALE_PAGES" ] && [ "$STALE_PAGES" -gt 0 ]; then
   FAILURES+=("$STALE_PAGES stale page(s)")
+fi
+
+# The dream cycle can repair lint, backlinks, and synthesized pages on disk.
+# Only publish those changes after doctor and health both pass, so generated
+# knowledge never crosses into the canonical repository before validation.
+# Fast-forward the canonical checkout only if no agent changed it meanwhile.
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  if [ -n "$(git -C "$DREAM_WORKTREE" status --porcelain 2>> "$RUN_LOG" || true)" ]; then
+    run_step "stage validated dream cycle changes" git -C "$DREAM_WORKTREE" add --all || true
+    if [ "${#FAILURES[@]}" -eq 0 ]; then
+      DREAM_DATE="$(TZ="${GBRAIN_MAINTENANCE_TZ:-Europe/Rome}" date +%F)"
+      run_step "commit validated dream cycle changes" \
+        git -C "$DREAM_WORKTREE" \
+          -c user.name="${GBRAIN_GIT_AUTHOR_NAME:-MomoBrain}" \
+          -c user.email="${GBRAIN_GIT_AUTHOR_EMAIL:-momobrain@users.noreply.github.com}" \
+          commit -m "gbrain: dream cycle $DREAM_DATE" || true
+    fi
+  fi
+fi
+
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  DREAM_HEAD="$(git -C "$DREAM_WORKTREE" rev-parse HEAD 2>> "$RUN_LOG" || true)"
+  CURRENT_HEAD="$(git -C "$REPO_PATH" rev-parse HEAD 2>> "$RUN_LOG" || true)"
+  CURRENT_DIRTY="$(git -C "$REPO_PATH" status --porcelain 2>> "$RUN_LOG" || true)"
+  if [ "$CURRENT_HEAD" != "$BASE_HEAD" ] || [ -n "$CURRENT_DIRTY" ]; then
+    FAILURES+=("canonical brain repository changed during dream cycle")
+  elif [ -z "$DREAM_HEAD" ]; then
+    FAILURES+=("could not resolve validated dream worktree HEAD")
+  elif [ "$DREAM_HEAD" != "$BASE_HEAD" ]; then
+    run_step "fast-forward canonical brain checkout" \
+      git -C "$REPO_PATH" merge --ff-only "$DREAM_HEAD" || true
+  fi
+fi
+
+# Push even when this cycle made no new commit. This retries a previous
+# maintenance commit whose push failed after the local commit succeeded.
+if [ "${#FAILURES[@]}" -eq 0 ]; then
+  run_step "push validated dream cycle changes" git -C "$REPO_PATH" push origin HEAD:main || true
+fi
+
+# A clean worktree is disposable even when the network push failed: the
+# canonical checkout already holds the commit and the next cycle retries it.
+# Dirty worktrees are preserved on failures for operator inspection.
+if [ -n "$DREAM_WORKTREE" ] && [ -d "$DREAM_WORKTREE" ]; then
+  DREAM_DIRTY="$(git -C "$DREAM_WORKTREE" status --porcelain 2>/dev/null || true)"
+  if [ -z "$DREAM_DIRTY" ] \
+    && [ -n "${DREAM_HEAD:-}" ] \
+    && git -C "$REPO_PATH" merge-base --is-ancestor "$DREAM_HEAD" HEAD 2>/dev/null; then
+    git -C "$REPO_PATH" worktree remove "$DREAM_WORKTREE" >> "$RUN_LOG" 2>&1 || true
+  elif [ "${#FAILURES[@]}" -gt 0 ]; then
+    FAILURES+=("dream worktree preserved for recovery at $DREAM_WORKTREE")
+  fi
 fi
 
 cp "$RUN_LOG" "$STATE_DIR/last-run.log"
