@@ -55,6 +55,13 @@ ENV npm_config_ignore_scripts=true
 RUN bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
     && gbrain --version || true
 
+# Bun hoists global dependencies next to GBrain, while GBrain 0.45 resolves
+# embedded PGLite assets from its own node_modules directory. Bridge the two
+# layouts so pglite.wasm remains available at runtime.
+RUN mkdir -p "$BUN_INSTALL/install/global/node_modules/gbrain/node_modules" \
+    && ln -s "$BUN_INSTALL/install/global/node_modules/@electric-sql" \
+      "$BUN_INSTALL/install/global/node_modules/gbrain/node_modules/@electric-sql"
+
 # Skill pack: GBrain's fat-markdown skills (ingest, query, maintain, enrich,
 # briefing, migrate, install, and ~40 more). They live at the repo root
 # under skills/. We stage them in /app/skills-seed; the entrypoint copies
