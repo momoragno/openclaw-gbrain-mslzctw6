@@ -51,12 +51,13 @@ RUN npm ci --omit=dev
 # step is fast and the build log stays clean — the entrypoint runs
 # `gbrain init --pglite` at boot, which creates the brain and applies
 # migrations against the persistent disk.
-ARG GBRAIN_REF=4deee227be3b9d9ae6322d5f5bd06d3df0088b07
+# GBrain 0.46.1.0
+ARG GBRAIN_REF=a90547e6febd8d953605c24882d663b1d59c98f0
 ENV npm_config_ignore_scripts=true
 RUN bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
     && gbrain --version || true
 
-# Bun hoists global dependencies next to GBrain, while GBrain 0.45 resolves
+# Bun hoists global dependencies next to GBrain, while GBrain resolves
 # embedded PGLite assets from its own node_modules directory. Bridge the two
 # layouts so pglite.wasm remains available at runtime.
 RUN mkdir -p "$BUN_INSTALL/install/global/node_modules/gbrain/node_modules" \
